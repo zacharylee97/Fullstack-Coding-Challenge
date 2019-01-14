@@ -1,30 +1,52 @@
-const express = require('express');
-const SocketServer = require('ws').Server;
+const WebSocket = require ('ws');
 
-// Set the port to 3001
-const PORT = 3001;
+const wss = new WebSocket.Server({ port: 8989 });
 
-// Create a new express server
-const server = express()
-   // Make the express server serve static assets (html, javascript, css) from the /public folder
-  .use(express.static('public'))
-  .listen(PORT, '0.0.0.0', 'localhost', () => console.log(`Listening on ${ PORT }`));
+const users = [];
 
-// Create the WebSockets server
-const wss = new SocketServer({ server });
-const clients = {};
+const broadcast = (data, ws) => {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN && client !== ws) {
+      client.send(JSON.stringify(data))
+    }
+  })
+}
 
-// Set up a callback that will run when a client connects to the server
-// when a client connects they are assigned a socket, represented by
-// the ws parameter in the callback.
-wss.on('connection', function connection(ws) {
+wss.on('connection', (ws) => {
   console.log('Client connected');
-  addClient(ws);
-  
-  // Set up a callback for when a client closes the socket. This usually means they closed their browser.
+  let index;
+  ws.on('message', (message) => {
+    const data = JSON.parse(message);
+    switch (data.type) {
+      case 'ADD_USER': {
+        index = users.length;
+        users.push({ name: data.name, id: index + 1 });
+        ws.send(JSON.stringify({
+          type: 'USERS_LIST',
+          users
+        }))
+        broadcast({
+          type: 'USERS_LIST',
+          users
+        }, ws);
+        break;
+      }
+      case 'ADD_MESSAGE':
+        broadcast({
+          type: 'ADD_MESSAGE',
+          message: data.message,
+          author: data.author
+        }, ws);
+        break;
+      default:
+        break;
+    }
+  })
   ws.on('close', () => {
-    wss.broadcastClients();
-    removeClient(ws);
-    console.log('Client disconnected');
-  });
-});
+    users.splice(index, 1);
+    broadcast({
+      type: 'USERS_LIST',
+      users
+    }, ws)
+  })
+})
